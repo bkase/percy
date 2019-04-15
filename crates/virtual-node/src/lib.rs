@@ -71,7 +71,7 @@ pub struct VElement {
     pub events: Events,
     /// The children of this `VirtualNode`. So a <div> <em></em> </div> structure would
     /// have a parent div and one child, em.
-    pub children: Vec<VirtualNode>,
+    pub children: Vec<Box<AsRef<VirtualNode>>>,
 }
 
 #[derive(PartialEq)]
@@ -217,9 +217,11 @@ impl VElement {
     pub fn create_element_node(&self) -> CreatedNode<Element> {
         let document = web_sys::window().unwrap().document().unwrap();
 
-        let element = if html_validation::is_svg_namespace(&self.tag){
-            document.create_element_ns(Some("http://www.w3.org/2000/svg"), &self.tag).unwrap()
-        }else{
+        let element = if html_validation::is_svg_namespace(&self.tag) {
+            document
+                .create_element_ns(Some("http://www.w3.org/2000/svg"), &self.tag)
+                .unwrap()
+        } else {
             document.create_element(&self.tag).unwrap()
         };
         let mut closures = HashMap::new();
@@ -262,8 +264,9 @@ impl VElement {
         let mut previous_node_was_text = false;
 
         self.children.iter().for_each(|child| {
-            match child {
-                VirtualNode::Text(text_node) => {
+            let vnode = child.as_ref().as_ref();
+            match vnode {
+                &VirtualNode::Text(text_node) => {
                     let current_node = element.as_ref() as &web_sys::Node;
 
                     // We ensure that the text siblings are patched by preventing the browser from merging
@@ -285,7 +288,7 @@ impl VElement {
 
                     previous_node_was_text = true;
                 }
-                VirtualNode::Element(element_node) => {
+                &VirtualNode::Element(element_node) => {
                     previous_node_was_text = false;
 
                     let child = element_node.create_element_node();
@@ -374,7 +377,7 @@ fn create_unique_identifier() -> u32 {
 /// html! { <div> { nodes } </div> }
 ///
 /// nodes can be a String .. VirtualNode .. Vec<VirtualNode> ... etc
-pub struct IterableNodes(Vec<VirtualNode>);
+pub struct IterableNodes(Vec<Box<AsRef<VirtualNode>>>);
 
 impl IterableNodes {
     /// Retrieve the first node mutably
@@ -389,9 +392,9 @@ impl IterableNodes {
 }
 
 impl IntoIterator for IterableNodes {
-    type Item = VirtualNode;
+    type Item = Box<AsRef<VirtualNode>>;
     // TODO: Is this possible with an array [VirtualNode] instead of a vec?
-    type IntoIter = ::std::vec::IntoIter<VirtualNode>;
+    type IntoIter = ::std::vec::IntoIter<Box<AsRef<VirtualNode>>>;
 
     fn into_iter(self) -> Self::IntoIter {
         self.0.into_iter()
@@ -400,24 +403,35 @@ impl IntoIterator for IterableNodes {
 
 impl From<VirtualNode> for IterableNodes {
     fn from(other: VirtualNode) -> Self {
-        IterableNodes(vec![other])
+        IterableNodes(vec![Box::new(Rc::new(other))])
     }
 }
 
 impl From<&str> for IterableNodes {
     fn from(other: &str) -> Self {
-        IterableNodes(vec![VirtualNode::text(other)])
+        IterableNodes(vec![Box::new(Rc::new(VirtualNode::text(other)))])
     }
 }
 
 impl From<String> for IterableNodes {
     fn from(other: String) -> Self {
-        IterableNodes(vec![VirtualNode::text(other.as_str())])
+        IterableNodes(vec![Box::new(Rc::new(VirtualNode::text(other.as_str())))])
     }
 }
 
 impl From<Vec<VirtualNode>> for IterableNodes {
     fn from(other: Vec<VirtualNode>) -> Self {
+        IterableNodes(
+            other
+                .into_iter()
+                .map(|v| Box::new(Rc::new(v)) as Box<AsRef<VirtualNode>>)
+                .collect(),
+        )
+    }
+}
+
+impl From<Vec<Box<AsRef<VirtualNode>>>> for IterableNodes {
+    fn from(other: Vec<Box<AsRef<VirtualNode>>>) -> Self {
         IterableNodes(other)
     }
 }
@@ -485,12 +499,26 @@ impl fmt::Debug for VirtualNode {
     }
 }
 
+// needed for trait coherence reasons
+struct AsRefVirtualNode(Box<AsRef<VirtualNode>>);
+
+impl fmt::Debug for AsRefVirtualNode {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        self.0.as_ref().as_ref().fmt(f)
+    }
+}
+
 impl fmt::Debug for VElement {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         write!(
             f,
             "Element(<{}>, attrs: {:?}, children: {:?})",
-            self.tag, self.attrs, self.children,
+            self.tag,
+            self.attrs,
+            self.children
+                .into_iter()
+                .map(|x| AsRefVirtualNode(x))
+                .collect(),
         )
     }
 }
@@ -513,7 +541,7 @@ impl fmt::Display for VElement {
         write!(f, ">")?;
 
         for child in self.children.iter() {
-            write!(f, "{}", child.to_string())?;
+            write!(f, "{}", child.as_ref().as_ref().to_string())?;
         }
 
         if !html_validation::is_self_closing(&self.tag) {
