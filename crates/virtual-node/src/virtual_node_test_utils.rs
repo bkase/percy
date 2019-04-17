@@ -1,6 +1,7 @@
 //! A collection of functions that are useful for unit testing your html! views.
 
 use crate::{VElement, VirtualNode};
+use std::rc::Rc;
 
 impl VirtualNode {
     /// Get a vector of all of the VirtualNode children / grandchildren / etc of
@@ -34,7 +35,7 @@ impl VirtualNode {
             VirtualNode::Text(_) => { /* nothing to do */ }
             VirtualNode::Element(element_node) => {
                 for child in element_node.children.iter() {
-                    get_descendants(&mut descendants, child);
+                    get_descendants(&mut descendants, child.as_ref().as_ref());
                 }
             }
         }
@@ -82,7 +83,7 @@ fn get_descendants<'a>(descendants: &mut Vec<&'a VirtualNode>, node: &'a Virtual
         VirtualNode::Text(_) => { /* nothing to do */ }
         VirtualNode::Element(element_node) => {
             for child in element_node.children.iter() {
-                get_descendants(descendants, child);
+                get_descendants(descendants, child.as_ref().as_ref());
             }
         }
     }
@@ -129,8 +130,8 @@ mod tests {
         em.attrs = attrs;
 
         let mut html = VElement::new("div");
-        html.children.push(span);
-        html.children.push(em.into());
+        html.children.push(Box::new(Rc::new(span)));
+        html.children.push(Box::new(Rc::new(em.into())));
 
         let html_node = VirtualNode::Element(html);
         let hello_nodes = html_node.filter_label_equals("hello");

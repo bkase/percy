@@ -61,7 +61,6 @@ pub enum VirtualNode {
     Text(VText),
 }
 
-#[derive(PartialEq)]
 pub struct VElement {
     /// The HTML tag, such as "div"
     pub tag: String,
@@ -72,6 +71,18 @@ pub struct VElement {
     /// The children of this `VirtualNode`. So a <div> <em></em> </div> structure would
     /// have a parent div and one child, em.
     pub children: Vec<Box<AsRef<VirtualNode>>>,
+}
+impl PartialEq for VElement {
+    fn eq(&self, other: &VElement) -> bool {
+        self.tag == other.tag
+            && self.attrs == other.attrs
+            && self.events == other.events
+            && self
+                .children
+                .into_iter()
+                .zip(other.children.into_iter())
+                .all(|(x, y)| x.as_ref().as_ref().eq(y.as_ref().as_ref()))
+    }
 }
 
 #[derive(PartialEq)]
@@ -266,7 +277,7 @@ impl VElement {
         self.children.iter().for_each(|child| {
             let vnode = child.as_ref().as_ref();
             match vnode {
-                &VirtualNode::Text(text_node) => {
+                &VirtualNode::Text(ref text_node) => {
                     let current_node = element.as_ref() as &web_sys::Node;
 
                     // We ensure that the text siblings are patched by preventing the browser from merging
@@ -288,7 +299,7 @@ impl VElement {
 
                     previous_node_was_text = true;
                 }
-                &VirtualNode::Element(element_node) => {
+                &VirtualNode::Element(ref element_node) => {
                     previous_node_was_text = false;
 
                     let child = element_node.create_element_node();
@@ -378,18 +389,6 @@ fn create_unique_identifier() -> u32 {
 ///
 /// nodes can be a String .. VirtualNode .. Vec<VirtualNode> ... etc
 pub struct IterableNodes(Vec<Box<AsRef<VirtualNode>>>);
-
-impl IterableNodes {
-    /// Retrieve the first node mutably
-    pub fn first(&mut self) -> &mut VirtualNode {
-        self.0.first_mut().unwrap()
-    }
-
-    /// Retrieve the last node mutably
-    pub fn last(&mut self) -> &mut VirtualNode {
-        self.0.last_mut().unwrap()
-    }
-}
 
 impl IntoIterator for IterableNodes {
     type Item = Box<AsRef<VirtualNode>>;
@@ -510,15 +509,15 @@ impl fmt::Debug for AsRefVirtualNode {
 
 impl fmt::Debug for VElement {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        let xs: Vec<AsRefVirtualNode> = self
+            .children
+            .into_iter()
+            .map(|x| AsRefVirtualNode(x))
+            .collect();
         write!(
             f,
             "Element(<{}>, attrs: {:?}, children: {:?})",
-            self.tag,
-            self.attrs,
-            self.children
-                .into_iter()
-                .map(|x| AsRefVirtualNode(x))
-                .collect(),
+            self.tag, self.attrs, xs
         )
     }
 }
