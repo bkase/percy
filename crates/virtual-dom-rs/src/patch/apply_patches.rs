@@ -140,7 +140,7 @@ fn apply_element_patch(node: &Element, patch: &Patch) -> Result<ActiveClosures, 
             Ok(active_closures)
         }
         Patch::Replace(_node_idx, new_node) => {
-            let created_node = new_node.create_dom_node();
+            let created_node = new_node.0.as_ref().as_ref().create_dom_node();
 
             node.replace_with_with_node_1(&created_node.node)?;
 
@@ -184,7 +184,7 @@ fn apply_element_patch(node: &Element, patch: &Patch) -> Result<ActiveClosures, 
             let mut active_closures = HashMap::new();
 
             for new_node in new_nodes {
-                let created_node = new_node.create_dom_node();
+                let created_node = new_node.0.as_ref().as_ref().create_dom_node();
 
                 parent.append_child(&created_node.node)?;
 
@@ -205,7 +205,7 @@ fn apply_text_patch(node: &Text, patch: &Patch) -> Result<(), JsValue> {
             node.set_node_value(Some(&new_node.text));
         }
         Patch::Replace(_node_idx, new_node) => {
-            node.replace_with_with_node_1(&new_node.create_dom_node().node)?;
+            node.replace_with_with_node_1(&new_node.0.as_ref().as_ref().create_dom_node().node)?;
         }
         other => unreachable!(
             "Text nodes should only receive ChangeText or Replace patches, not {:?}.",

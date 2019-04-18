@@ -113,7 +113,7 @@ fn updates_active_closures_on_append() {
     let id = "update-active-closures-on-append";
 
     {
-        let append_node = html! {
+        let append_node: Box<AsRef<VirtualNode>> = Box::new(Rc::new(html! {
         <div>
            <input
               id=id
@@ -125,7 +125,7 @@ fn updates_active_closures_on_append() {
               value="End Text"
            >
          </div>
-        };
+        }));
 
         // New node gets appended into the DOM.
         // We are testing that we've stored this new node's closures even though `new` will be dropped

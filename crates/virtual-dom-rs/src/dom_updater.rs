@@ -3,8 +3,9 @@
 use crate::diff::diff;
 use crate::patch::patch;
 use std::collections::HashMap;
+use std::rc::Rc;
 use virtual_node::DynClosure;
-use virtual_node::VirtualNode;
+use virtual_node::{AsRefVirtualNode, VirtualNode};
 use web_sys::{Element, Node};
 
 /// Closures that we are holding on to to make sure that they don't get invalidated after a
@@ -23,7 +24,7 @@ pub type ActiveClosures = HashMap<u32, Vec<DynClosure>>;
 /// Used for keeping a real DOM node up to date based on the current VirtualNode
 /// and a new incoming VirtualNode that represents our latest DOM state.
 pub struct DomUpdater {
-    current_vdom: VirtualNode,
+    current_vdom: Box<AsRef<VirtualNode>>,
     /// The closures that are currently attached to elements in the page.
     ///
     /// We keep these around so that they don't get dropped (and thus stop working);
@@ -38,8 +39,8 @@ impl DomUpdater {
     /// Create a new `DomUpdater`.
     ///
     /// A root `Node` will be created but not added to your DOM.
-    pub fn new(current_vdom: VirtualNode) -> DomUpdater {
-        let created_node = current_vdom.create_dom_node();
+    pub fn new(current_vdom: Box<AsRef<VirtualNode>>) -> DomUpdater {
+        let created_node = current_vdom.as_ref().as_ref().create_dom_node();
         DomUpdater {
             current_vdom,
             active_closures: created_node.closures,
@@ -51,8 +52,11 @@ impl DomUpdater {
     ///
     /// A root `Node` will be created and appended (as a child) to your passed
     /// in mount element.
-    pub fn new_append_to_mount(current_vdom: VirtualNode, mount: &Element) -> DomUpdater {
-        let created_node = current_vdom.create_dom_node();
+    pub fn new_append_to_mount(
+        current_vdom: Box<AsRef<VirtualNode>>,
+        mount: &Element,
+    ) -> DomUpdater {
+        let created_node = current_vdom.as_ref().as_ref().create_dom_node();
         mount
             .append_child(&created_node.node)
             .expect("Could not append child to mount");
@@ -67,8 +71,8 @@ impl DomUpdater {
     ///
     /// A root `Node` will be created and it will replace your passed in mount
     /// element.
-    pub fn new_replace_mount(current_vdom: VirtualNode, mount: Element) -> DomUpdater {
-        let created_node = current_vdom.create_dom_node();
+    pub fn new_replace_mount(current_vdom: Box<AsRef<VirtualNode>>, mount: Element) -> DomUpdater {
+        let created_node = current_vdom.as_ref().as_ref().create_dom_node();
         mount
             .replace_with_with_node_1(&created_node.node)
             .expect("Could not replace mount element");
@@ -83,8 +87,11 @@ impl DomUpdater {
     ///
     /// Then use that diff to patch the real DOM in the user's browser so that they are
     /// seeing the latest state of the application.
-    pub fn update(&mut self, new_vdom: VirtualNode) {
-        let patches = diff(&self.current_vdom, &new_vdom);
+    pub fn update(&mut self, new_vdom: Box<AsRef<VirtualNode>>) {
+        let patches = diff(
+            AsRefVirtualNode(&self.current_vdom),
+            AsRefVirtualNode(&new_vdom),
+        );
 
         let active_closures = patch(self.root_node.clone(), &patches).unwrap();
 

@@ -1,29 +1,32 @@
 use crate::Patch;
-use crate::VirtualNode;
+use crate::{AsRefVirtualNode, VirtualNode};
 use std::cmp::min;
 use std::collections::HashMap;
 use std::mem;
+use std::rc::Rc;
 
 /// Given two VirtualNode's generate Patch's that would turn the old virtual node's
 /// real DOM node equivalent into the new VirtualNode's real DOM node equivalent.
-pub fn diff<'a>(old: &'a VirtualNode, new: &'a VirtualNode) -> Vec<Patch<'a>> {
-    diff_recursive(&old, &new, &mut 0)
+pub fn diff<'a>(old: AsRefVirtualNode<'a>, new: AsRefVirtualNode<'a>) -> Vec<Patch<'a>> {
+    diff_recursive(old, new, &mut 0)
 }
 
 fn diff_recursive<'a, 'b>(
-    old: &'a VirtualNode,
-    new: &'a VirtualNode,
+    old: AsRefVirtualNode<'a>,
+    new: AsRefVirtualNode<'a>,
     cur_node_idx: &'b mut usize,
 ) -> Vec<Patch<'a>> {
     let mut patches = vec![];
     let mut replace = false;
 
     // Different enum variants, replace!
-    if mem::discriminant(old) != mem::discriminant(new) {
+    if mem::discriminant(old.0.as_ref().as_ref()) != mem::discriminant(new.0.as_ref().as_ref()) {
         replace = true;
     }
 
-    if let (VirtualNode::Element(old_element), VirtualNode::Element(new_element)) = (old, new) {
+    if let (VirtualNode::Element(old_element), VirtualNode::Element(new_element)) =
+        (old.0.as_ref().as_ref(), new.0.as_ref().as_ref())
+    {
         // Replace if there are different element tags
         if old_element.tag != new_element.tag {
             replace = true;
@@ -42,8 +45,8 @@ fn diff_recursive<'a, 'b>(
 
     // Handle replacing of a node
     if replace {
-        patches.push(Patch::Replace(*cur_node_idx, &new));
-        if let VirtualNode::Element(old_element_node) = old {
+        patches.push(Patch::Replace(*cur_node_idx, new));
+        if let VirtualNode::Element(old_element_node) = old.0.as_ref().as_ref() {
             for child in old_element_node.children.iter() {
                 increment_node_idx_for_children(child, cur_node_idx);
             }
@@ -54,7 +57,7 @@ fn diff_recursive<'a, 'b>(
     // The following comparison can only contain identical variants, other
     // cases have already been handled above by comparing variant
     // discriminants.
-    match (old, new) {
+    match (old.0.as_ref().as_ref(), new.0.as_ref().as_ref()) {
         // We're comparing two text nodes
         (VirtualNode::Text(old_text), VirtualNode::Text(new_text)) => {
             if old_text != new_text {
@@ -110,8 +113,11 @@ fn diff_recursive<'a, 'b>(
             let new_child_count = new_element.children.len();
 
             if new_child_count > old_child_count {
-                let append_patch: Vec<&'a VirtualNode> =
-                    new_element.children[old_child_count..].iter().collect();
+                let append_patch: Vec<AsRefVirtualNode<'a>> = new_element.children
+                    [old_child_count..]
+                    .iter()
+                    .map(|v| AsRefVirtualNode(v))
+                    .collect();
                 patches.push(Patch::AppendChildren(*cur_node_idx, append_patch))
             }
 
@@ -124,7 +130,11 @@ fn diff_recursive<'a, 'b>(
                 *cur_node_idx = *cur_node_idx + 1;
                 let old_child = &old_element.children[index];
                 let new_child = &new_element.children[index];
-                patches.append(&mut diff_recursive(&old_child, &new_child, cur_node_idx))
+                patches.append(&mut diff_recursive(
+                    AsRefVirtualNode(old_child),
+                    AsRefVirtualNode(new_child),
+                    cur_node_idx,
+                ))
             }
             if new_child_count < old_child_count {
                 for child in old_element.children[min_count..].iter() {
@@ -142,11 +152,14 @@ fn diff_recursive<'a, 'b>(
     patches
 }
 
-fn increment_node_idx_for_children<'a, 'b>(old: &'a VirtualNode, cur_node_idx: &'b mut usize) {
+fn increment_node_idx_for_children<'a, 'b>(
+    old: &'a Box<AsRef<VirtualNode>>,
+    cur_node_idx: &'b mut usize,
+) {
     *cur_node_idx += 1;
-    if let VirtualNode::Element(element_node) = old {
+    if let VirtualNode::Element(ref element_node) = old.as_ref().as_ref() {
         for child in element_node.children.iter() {
-            increment_node_idx_for_children(&child, cur_node_idx);
+            increment_node_idx_for_children(child, cur_node_idx);
         }
     }
 }
@@ -233,11 +246,18 @@ mod tests {
         .test();
         DiffTestCase {
             description: "Removing child and change next node after parent",
-            old: html! { <div> <b> <i></i> <i></i> </b> <b></b> </div> },
-            new: html! { <div> <b> <i></i> </b> <i></i> </div>},
+            old: Box::new(Rc::new(
+                html! { <div> <b> <i></i> <i></i> </b> <b></b> </div> },
+            )),
+            new: Box::new(Rc::new(html! { <div> <b> <i></i> </b> <i></i> </div>})),
             expected: vec![
                 Patch::TruncateChildren(1, 1),
-                Patch::Replace(4, &html! { <i></i> }),
+                Patch::Replace(
+                    4,
+                    AsRefVirtualNode(
+                        &(Box::new(Rc::new(html! { <i></i> })) as Box<AsRef<VirtualNode>>),
+                    ),
+                ),
             ], //required to check correct index
         }
         .test();
@@ -249,16 +269,16 @@ mod tests {
         attributes.insert("id", "hello");
 
         DiffTestCase {
-            old: html! { <div> </div> },
-            new: html! { <div id="hello"> </div> },
+            old: Box::new(Rc::new(html! { <div> </div> })),
+            new: Box::new(Rc::new(html! { <div id="hello"> </div> })),
             expected: vec![Patch::AddAttributes(0, attributes.clone())],
             description: "Add attributes",
         }
         .test();
 
         DiffTestCase {
-            old: html! { <div id="foobar"> </div> },
-            new: html! { <div id="hello"> </div> },
+            old: Box::new(Rc::new(html! { <div id="foobar"> </div> })),
+            new: Box::new(Rc::new(html! { <div id="hello"> </div> })),
             expected: vec![Patch::AddAttributes(0, attributes)],
             description: "Change attribute",
         }
@@ -268,8 +288,8 @@ mod tests {
     #[test]
     fn remove_attributes() {
         DiffTestCase {
-            old: html! { <div id="hey-there"></div> },
-            new: html! { <div> </div> },
+            old: Box::new(Rc::new(html! { <div id="hey-there"></div> })),
+            new: Box::new(Rc::new(html! { <div> </div> })),
             expected: vec![Patch::RemoveAttributes(0, vec!["id"])],
             description: "Add attributes",
         }
@@ -283,8 +303,8 @@ mod tests {
 
         DiffTestCase {
             description: "Add attributes",
-            old: html! { <div id="hey-there"></div> },
-            new: html! { <div id="changed"> </div> },
+            old: Box::new(Rc::new(html! { <div id="hey-there"></div> })),
+            new: Box::new(Rc::new(html! { <div id="changed"> </div> })),
             expected: vec![Patch::AddAttributes(0, attributes)],
         }
         .test();
@@ -294,8 +314,8 @@ mod tests {
     fn replace_text_node() {
         DiffTestCase {
             description: "Replace text node",
-            old: html! { Old },
-            new: html! { New },
+            old: Box::new(Rc::new(html! { Old })),
+            new: Box::new(Rc::new(html! { New })),
             expected: vec![Patch::ChangeText(0, &VText::new("New"))],
         }
         .test();
@@ -308,9 +328,14 @@ mod tests {
     fn replace_if_different_keys() {
         DiffTestCase {
             description: "If two nodes have different keys always generate a full replace.",
-            old: html! { <div key="1"> </div> },
-            new: html! { <div key="2"> </div> },
-            expected: vec![Patch::Replace(0, &html! {<div key="2"> </div>})],
+            old: Box::new(Rc::new(html! { <div key="1"> </div> })),
+            new: Box::new(Rc::new(html! { <div key="2"> </div> })),
+            expected: vec![Patch::Replace(
+                0,
+                AsRefVirtualNode(
+                    &(Box::new(Rc::new(html! {<div key="2"> </div>})) as Box<AsRef<VirtualNode>>),
+                ),
+            )],
         }
         .test()
     }

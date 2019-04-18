@@ -1,7 +1,7 @@
 //! Our Patch enum is intentionally kept in it's own file for easy inclusion into
 //! The Percy Book.
 
-use crate::{VText, VirtualNode};
+use crate::{AsRefVirtualNode, VText};
 use std::collections::HashMap;
 
 mod apply_patches;
@@ -43,12 +43,12 @@ pub use apply_patches::patch;
 #[derive(Debug, PartialEq)]
 pub enum Patch<'a> {
     /// Append a vector of child nodes to a parent node id.
-    AppendChildren(NodeIdx, Vec<&'a VirtualNode>),
+    AppendChildren(NodeIdx, Vec<AsRefVirtualNode<'a>>),
     /// For a `node_i32`, remove all children besides the first `len`
     TruncateChildren(NodeIdx, usize),
     /// Replace a node with another node. This typically happens when a node's tag changes.
     /// ex: <div> becomes <span>
-    Replace(NodeIdx, &'a VirtualNode),
+    Replace(NodeIdx, AsRefVirtualNode<'a>),
     /// Add attributes that the new node has that the old node does not
     AddAttributes(NodeIdx, HashMap<&'a str, &'a str>),
     /// Remove attributes that the old node had that the new node doesn't

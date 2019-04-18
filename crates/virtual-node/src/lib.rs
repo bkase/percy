@@ -79,8 +79,8 @@ impl PartialEq for VElement {
             && self.events == other.events
             && self
                 .children
-                .into_iter()
-                .zip(other.children.into_iter())
+                .iter()
+                .zip(other.children.iter())
                 .all(|(x, y)| x.as_ref().as_ref().eq(y.as_ref().as_ref()))
     }
 }
@@ -499,9 +499,15 @@ impl fmt::Debug for VirtualNode {
 }
 
 // needed for trait coherence reasons
-struct AsRefVirtualNode(Box<AsRef<VirtualNode>>);
+pub struct AsRefVirtualNode<'a>(pub &'a Box<AsRef<VirtualNode>>);
 
-impl fmt::Debug for AsRefVirtualNode {
+impl<'a> PartialEq for AsRefVirtualNode<'a> {
+    fn eq(&self, other: &AsRefVirtualNode<'a>) -> bool {
+        self.0.as_ref().as_ref().eq(other.0.as_ref().as_ref())
+    }
+}
+
+impl<'a> fmt::Debug for AsRefVirtualNode<'a> {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         self.0.as_ref().as_ref().fmt(f)
     }
@@ -509,11 +515,7 @@ impl fmt::Debug for AsRefVirtualNode {
 
 impl fmt::Debug for VElement {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        let xs: Vec<AsRefVirtualNode> = self
-            .children
-            .into_iter()
-            .map(|x| AsRefVirtualNode(x))
-            .collect();
+        let xs: Vec<AsRefVirtualNode> = self.children.iter().map(|x| AsRefVirtualNode(x)).collect();
         write!(
             f,
             "Element(<{}>, attrs: {:?}, children: {:?})",
